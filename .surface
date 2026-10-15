@@ -18,6 +18,11 @@ hey account list
 hey account senders
 hey account use
 hey attachment
+hey attachment export
+hey attachment export --allow-partial
+hey attachment export --dry-run
+hey attachment export --force
+hey attachment export --output
 hey attachment list
 hey attachment list --allow-partial
 hey attachment save

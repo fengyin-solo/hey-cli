@@ -34,11 +34,12 @@ func newAttachmentCommand() *cobra.Command {
 		Use:   "attachment",
 		Short: "List and save files from a thread",
 		Annotations: map[string]string{
-			"agent_notes": "Subcommands: list, save. Lists downloadable attachments from every message in a known thread. Pass a returned ID to `hey attachment save <id>`.",
+			"agent_notes": "Subcommands: list, save, export. Lists downloadable attachments from every message in a known thread. Pass a returned ID to `hey attachment save <id>`, or export the whole thread to a directory with `hey attachment export <thread-id> --output <dir>`.",
 		},
 	}
 	attachment.AddCommand(newAttachmentsCommand().cmd)
 	attachment.AddCommand(newAttachmentsSaveCommand().cmd)
+	attachment.AddCommand(newAttachmentsExportCommand().cmd)
 	return attachment
 }
 

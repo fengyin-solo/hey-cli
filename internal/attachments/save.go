@@ -3,6 +3,8 @@ package attachments
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -81,7 +83,8 @@ func PortableFilename(filename string) (string, error) {
 
 // SaveBytes safely writes data to destination. Existing paths are preserved unless force is set.
 func SaveBytes(destination string, data []byte, force bool) (int64, error) {
-	return save(context.Background(), byteDownloader(data), destination, "", force)
+	written, _, err := saveHashed(context.Background(), byteDownloader(data), destination, "", force)
+	return written, err
 }
 
 type byteDownloader []byte
@@ -92,50 +95,71 @@ func (data byteDownloader) DownloadBlob(_ context.Context, _ string, writer io.W
 }
 
 func Save(ctx context.Context, downloader Downloader, destination, sourceURL string, force bool) (int64, error) {
-	if !IsHEYBlobURL(sourceURL) {
-		return 0, apierr.ErrAPI(0, "attachment URL does not identify a HEY blob")
-	}
-	return save(ctx, downloader, destination, sourceURL, force)
+	written, _, err := SaveHashed(ctx, downloader, destination, sourceURL, force)
+	return written, err
 }
 
-func save(ctx context.Context, downloader Downloader, destination, sourceURL string, force bool) (int64, error) {
+// SaveHashed behaves like Save but also returns the hex SHA-256 of the saved content.
+func SaveHashed(ctx context.Context, downloader Downloader, destination, sourceURL string, force bool) (int64, string, error) {
+	if !IsHEYBlobURL(sourceURL) {
+		return 0, "", apierr.ErrAPI(0, "attachment URL does not identify a HEY blob")
+	}
+	return saveHashed(ctx, downloader, destination, sourceURL, force)
+}
+
+func saveHashed(ctx context.Context, downloader Downloader, destination, sourceURL string, force bool) (int64, string, error) {
 	if !force {
 		if _, err := os.Lstat(destination); err == nil {
-			return 0, apierr.ErrUsage(fmt.Sprintf("destination already exists: %s (use --force to replace it)", destination))
+			return 0, "", apierr.ErrUsage(fmt.Sprintf("destination already exists: %s (use --force to replace it)", destination))
 		} else if !os.IsNotExist(err) {
-			return 0, apierr.ErrAPI(0, fmt.Sprintf("could not inspect destination: %v", err))
+			return 0, "", apierr.ErrAPI(0, fmt.Sprintf("could not inspect destination: %v", err))
 		}
 	}
 
 	directory := filepath.Dir(destination)
 	temporary, err := os.CreateTemp(directory, ".hey-file-*")
 	if err != nil {
-		return 0, apierr.ErrAPI(0, fmt.Sprintf("could not create temporary file: %v", err))
+		return 0, "", apierr.ErrAPI(0, fmt.Sprintf("could not create temporary file: %v", err))
 	}
 	temporaryPath := temporary.Name()
 	defer func() { _ = os.Remove(temporaryPath) }()
 
-	written, _, err := downloader.DownloadBlob(ctx, sourceURL, temporary)
+	hasher := sha256.New()
+	written, _, err := downloader.DownloadBlob(ctx, sourceURL, io.MultiWriter(temporary, hasher))
 	if err != nil {
 		_ = temporary.Close()
-		return written, err
+		return written, "", err
 	}
 	if err := temporary.Close(); err != nil {
-		return written, apierr.ErrAPI(0, fmt.Sprintf("could not close temporary file: %v", err))
+		return written, "", apierr.ErrAPI(0, fmt.Sprintf("could not close temporary file: %v", err))
 	}
+	checksum := hex.EncodeToString(hasher.Sum(nil))
 
 	if force {
-		if err := replaceFile(temporaryPath, destination); err != nil {
-			return written, apierr.ErrAPI(0, fmt.Sprintf("could not replace file: %v", err))
+		if err := commitStagedFile(temporaryPath, destination, true); err != nil {
+			return written, checksum, err
 		}
-		return written, nil
+		return written, checksum, nil
+	}
+	if err := commitStagedFile(temporaryPath, destination, false); err != nil {
+		return written, checksum, err
+	}
+	return written, checksum, nil
+}
+
+func commitStagedFile(temporaryPath, destination string, force bool) error {
+	if force {
+		if err := replaceFile(temporaryPath, destination); err != nil {
+			return apierr.ErrAPI(0, fmt.Sprintf("could not replace file: %v", err))
+		}
+		return nil
 	}
 	if err := commitFileNoReplace(temporaryPath, destination); os.IsExist(err) {
-		return written, apierr.ErrUsage(fmt.Sprintf("destination already exists: %s (use --force to replace it)", destination))
+		return apierr.ErrUsage(fmt.Sprintf("destination already exists: %s (use --force to replace it)", destination))
 	} else if err != nil {
-		return written, apierr.ErrAPI(0, fmt.Sprintf("could not save file: %v", err))
+		return apierr.ErrAPI(0, fmt.Sprintf("could not save file: %v", err))
 	}
-	return written, nil
+	return nil
 }
 
 func windowsReservedFilename(filename string) bool {
