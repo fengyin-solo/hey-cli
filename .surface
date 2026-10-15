@@ -314,7 +314,37 @@ hey search --page
 hey search --required
 hey search --subject
 hey search --to
+hey search delete
 hey search filters
+hey search list
+hey search run
+hey search run --all
+hey search run --any
+hey search run --attachment
+hey search run --date
+hey search run --exact
+hey search run --from
+hey search run --in
+hey search run --label
+hey search run --none
+hey search run --page
+hey search run --required
+hey search run --subject
+hey search run --to
+hey search save
+hey search save --any
+hey search save --attachment
+hey search save --date
+hey search save --exact
+hey search save --force
+hey search save --from
+hey search save --in
+hey search save --label
+hey search save --name
+hey search save --none
+hey search save --required
+hey search save --subject
+hey search save --to
 hey seen
 hey set-aside
 hey set-aside group
