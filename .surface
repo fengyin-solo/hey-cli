@@ -387,6 +387,13 @@ hey timetrack list
 hey timetrack list --all
 hey timetrack list --category
 hey timetrack list --limit
+hey timetrack report
+hey timetrack report --all
+hey timetrack report --category
+hey timetrack report --csv
+hey timetrack report --group-by
+hey timetrack report --since
+hey timetrack report --until
 hey timetrack start
 hey timetrack stop
 hey timetrack stop --category

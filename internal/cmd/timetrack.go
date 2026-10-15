@@ -32,7 +32,7 @@ func newTimetrackCommand() *timetrackCommand {
 		Use:   "timetrack",
 		Short: "Track time",
 		Annotations: map[string]string{
-			"agent_notes": "Subcommands: start, stop, current, list, edit, delete, export, categories, category. Use current to check if tracking is active before start/stop. Stop takes --category to file the track as it stops it. List, edit and delete work on completed tracks and take the IDs list reports. Export writes CSV to stdout or safely saves it with --output.",
+			"agent_notes": "Subcommands: start, stop, current, list, report, edit, delete, export, categories, category. Use current to check if tracking is active before start/stop. Stop takes --category to file the track as it stops it. List, report, edit and delete work on completed tracks and take the IDs list reports. Report totals tracks by category, day, week or month after --category/--since/--until filters. Export writes CSV to stdout or safely saves it with --output.",
 		},
 	}
 
@@ -40,6 +40,7 @@ func newTimetrackCommand() *timetrackCommand {
 	timetrackCommand.cmd.AddCommand(newTimetrackStopCommand().cmd)
 	timetrackCommand.cmd.AddCommand(newTimetrackCurrentCommand().cmd)
 	timetrackCommand.cmd.AddCommand(newTimetrackListCommand().cmd)
+	timetrackCommand.cmd.AddCommand(newTimetrackReportCommand().cmd)
 	timetrackCommand.cmd.AddCommand(newTimetrackEditCommand().cmd)
 	timetrackCommand.cmd.AddCommand(newTimetrackDeleteCommand().cmd)
 	timetrackCommand.cmd.AddCommand(newTimetrackExportCommand().cmd)
@@ -309,32 +310,17 @@ func (c *timetrackListCommand) run(cmd *cobra.Command, args []string) error {
 }
 
 func (c *timetrackListCommand) readPage(ctx context.Context, cursor string) (pageResult[generated.Recording], error) {
-	params := &generated.ListTimeTracksParams{}
-	if cursor != "" {
-		params.Page = &cursor
-	}
-	if c.category > 0 {
-		params.CategoryId = &c.category
-	}
-
-	page, err := sdk.TimeTracks().ListPage(ctx, params)
+	page, err := fetchTimeTrackPage(ctx, c.category, cursor)
 	if err != nil {
-		return pageResult[generated.Recording]{}, c.readError(err)
+		return page, c.readError(err)
 	}
-	if page == nil {
-		return pageResult[generated.Recording]{}, nil
-	}
-	return pageResult[generated.Recording]{Items: page.TimeTracks, Cursor: page.NextPage}, nil
+	return page, nil
 }
 
 // readError names the category HEY could not find. An id no category has answers 404 for
 // the whole list, which otherwise reads as somebody's tracked time having gone missing.
 func (c *timetrackListCommand) readError(err error) error {
-	converted := apierr.FromSDK(err)
-	if c.category > 0 && apierr.AsError(converted).Code == apierr.CodeNotFound {
-		return apierr.ErrNotFound("time track category", strconv.FormatInt(c.category, 10))
-	}
-	return converted
+	return timetrackPageReadError(c.category, err)
 }
 
 // timetrackListNotice says why the list stopped, because a list that quietly ended looks

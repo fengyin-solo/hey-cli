@@ -251,6 +251,7 @@ notice on stderr. Both need list data, so they work on `hey box list`, `hey box 
 | Stop time tracking | `hey timetrack stop` |
 | Current timer | `hey timetrack current --json` |
 | List time entries | `hey timetrack list --json` |
+| Totals by category/day/week/month | `hey timetrack report --group-by week --since 2026-08-01 --until 2026-08-07` (`--csv` for `group,records,duration,first_start,last_end`) |
 | Export completed time entries | `hey timetrack export > tracked-time.csv` (`--json` etc. need `--output`) |
 | Save a time tracking export | `hey timetrack export --output tracked-time.csv --json` |
 | List time track categories | `hey timetrack categories --json` |
@@ -819,6 +820,8 @@ hey timetrack start                           # Start timer
 hey timetrack stop                            # Stop timer
 hey timetrack current --json                  # Show current timer
 hey timetrack list --json                     # List time entries
+hey timetrack report --group-by category --all # Totals per category, day, week or month
+hey timetrack report --group-by week --csv      # Same totals as CSV: group,records,duration,first_start,last_end
 hey timetrack export > tracked-time.csv        # Write the complete CSV export
 hey timetrack export -o tracked-time.csv --json # Save the CSV, return file metadata
 hey timetrack categories --json               # List categories
@@ -831,6 +834,14 @@ Without `--output`, `hey timetrack export` writes CSV to stdout — redirect it 
 The output formatting flags cannot reshape a CSV, so `--json`, `--quiet`, `--markdown`,
 `--ids-only`, `--count` and `--html` are refused with a usage error unless `--output` is
 given, which returns file metadata for them to format.
+
+`hey timetrack report` aggregates the same completed tracks: `--group-by day` (default),
+`category`, `week` (Monday start, labeled `2026-W34`-style ISO weeks) or `month`, after
+`--category <id>`, `--since` and `--until` filters. Dates are inclusive `YYYY-MM-DD` days
+in the caller's time zone, and a track counts to the day it started, even past midnight.
+Each group gives records, total duration (`H:MM:SS`), earliest start and latest end. It
+reads one page by default like `list`; `--all` walks every page to the 100-page cap.
+`--csv` is mutually exclusive with the other formatting flags.
 
 ### Journal
 

@@ -539,6 +539,10 @@ hey timetrack current              # show active track
 hey timetrack list                 # completed tracks, newest first
 hey timetrack list --all --json    # every page
 hey timetrack list --category 42   # only one category's tracks
+hey timetrack report               # totals per day
+hey timetrack report --group-by category --since 2026-08-01 --until 2026-08-07
+hey timetrack report --group-by week --all
+hey timetrack report --group-by month --category 42 --csv
 hey timetrack edit 1042 --end 2026-08-22T17:30
 hey timetrack edit 1042 --category "Client work" --notes "Invoice review"
 hey timetrack delete 1042
@@ -555,6 +559,17 @@ with the day, the times, how long each took, the category and the notes. The tra
 running is not in it — `hey timetrack current` is where that lives. One page arrives by
 default; `--limit` reads on until it has that many and `--all` reads the lot. `--category`
 takes an ID from `hey timetrack categories`.
+
+`hey timetrack report` totals the same completed tracks instead of listing them.
+`--group-by` is `day` (the default), `category`, `week` (Monday-to-Sunday, named by ISO
+week such as `2026-W34`) or `month`. Each group gives the record count, the combined
+duration as `H:MM:SS`, and the earliest start and latest end. `--since` and `--until` are
+inclusive `YYYY-MM-DD` days in your own time zone, and a track is bucketed by the day it
+started — including one that ran past midnight. Paging matches `list`: the first page
+arrives by default, `--all` reads every page up to the 100-page cap, and `--category`
+narrows the read server-side. The styled, JSON and `--markdown` views share the
+aggregated table, and `--csv` writes the fixed columns
+`group,records,duration,first_start,last_end`.
 
 `hey timetrack edit` changes only the fields whose flags you give. `--start` and `--end`
 want `YYYY-MM-DDTHH:MM` in your own time zone, or a full RFC 3339 instant when the zone
