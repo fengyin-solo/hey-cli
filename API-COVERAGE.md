@@ -41,7 +41,7 @@ which is what `Entries().ListDraftsPage` and `hey draft list --page` exist for.
 | `/clearances/bulk.json` | PATCH | SDK `Clearances().ScreenMany` | `hey screener approve`/`deny` (several IDs) | covered |
 | `/clearances/punt.json` | POST | SDK `Clearances().Punt` | `hey screener clear`, TUI `X` | covered |
 | `/my/clearances.json` | GET | SDK `Clearances().Screened`, `ScreenedPage` | `hey screener history`, TUI Screener History | covered |
-| `/my/clearances/{id}` | PATCH | SDK `Clearances().Rescreen` | — | unused by the CLI |
+| `/my/clearances/{id}` | PATCH | SDK `Clearances().Rescreen` | `hey screener rescreen approve`/`deny` | covered |
 | `/contacts.json` | GET | SDK `Contacts().List` | `hey contact list`, Contacts TUI | covered |
 | `/contacts/{id}.json` | GET | SDK `Contacts().Get` | `hey contact show`, Contacts TUI | covered |
 | `/contacts.json` | POST | SDK `Contacts().Create` | `hey contact add`, Contacts TUI | covered |

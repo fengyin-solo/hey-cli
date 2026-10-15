@@ -300,6 +300,11 @@ hey screener history --page
 hey screener list
 hey screener list --all
 hey screener list --page
+hey screener rescreen
+hey screener rescreen --box
+hey screener rescreen --dry-run
+hey screener rescreen --seen
+hey screener rescreen --spam
 hey search
 hey search --all
 hey search --any

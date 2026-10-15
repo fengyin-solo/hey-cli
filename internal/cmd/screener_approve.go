@@ -24,7 +24,7 @@ func newScreenerApproveCommand() *screenerApproveCommand {
 		Short: "Let a sender through",
 		Long:  "Approve a sender, so everything they have waiting is delivered and their future email arrives.",
 		Annotations: map[string]string{
-			"agent_notes": "Clearance IDs come from `hey screener list`, not contact IDs. --box and --seen apply to one sender at a time; several IDs go through the bulk endpoint, which takes neither. Reverse with `hey screener deny <id>`.",
+			"agent_notes": "Clearance IDs come from `hey screener list`, not contact IDs. --box and --seen apply to one sender at a time; several IDs go through the bulk endpoint, which takes neither. This answers a sender in the queue — change one already decided with `hey screener rescreen deny <id>`.",
 		},
 		Example: `  hey screener approve 12345
   hey screener approve 12345 --box "The Feed"

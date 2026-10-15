@@ -22,7 +22,7 @@ func newScreenerDenyCommand() *screenerDenyCommand {
 		Short: "Turn a sender away",
 		Long:  "Deny a sender, so what they sent is hidden and their future email never arrives.",
 		Annotations: map[string]string{
-			"agent_notes": "Clearance IDs come from `hey screener list`, not contact IDs. --spam also marks what they already sent as spam and trains HEY's filter on it, which is harder to undo than denying. Reverse with `hey screener approve <id>`.",
+			"agent_notes": "Clearance IDs come from `hey screener list`, not contact IDs. --spam also marks what they already sent as spam and trains HEY's filter on it, which is harder to undo than denying. This answers a sender in the queue — change one already decided with `hey screener rescreen approve <id>`.",
 		},
 		Example: `  hey screener deny 12345
   hey screener deny 12345 67890

@@ -33,7 +33,7 @@ func newScreenerHistoryCommand() *screenerHistoryCommand {
 		Short: "List the senders already screened",
 		Long:  "Review who has been approved or denied, most recent decision first.",
 		Annotations: map[string]string{
-			"agent_notes": "Only senders already decided on — the pending queue is `hey screener list`. Change a decision with `hey screener approve <id>` or `hey screener deny <id>` using the ID from here. --page continues from the next_page cursor of an earlier listing.",
+			"agent_notes": "Only senders already decided on — the pending queue is `hey screener list`. Change one of these decisions with `hey screener rescreen approve|deny <id>` using the ID from here; approve and deny only answer senders still waiting. --page continues from the next_page cursor of an earlier listing.",
 		},
 		Example: `  hey screener history
   hey screener history --json
@@ -93,8 +93,8 @@ func (c *screenerHistoryCommand) run(cmd *cobra.Command, _ []string) error {
 		output.WithMeta("pages_fetched", collected.Read),
 		output.WithBreadcrumbs(output.Breadcrumb{
 			Action:      "rescreen",
-			Command:     "hey screener approve <id>",
-			Description: "Change a decision",
+			Command:     "hey screener rescreen approve|deny <id>",
+			Description: "Change a recorded decision",
 		}),
 	}
 	if collected.Cursor != "" {

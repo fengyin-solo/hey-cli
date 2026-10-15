@@ -5,12 +5,25 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/basecamp/hey-cli/internal/output"
 )
+
+// screenedPetitioners names the senders the /my/clearances history serves, so
+// the rescreen endpoint can answer a patched clearance with a petitioner.
+var screenedPetitioners = map[string]struct {
+	name  string
+	email string
+}{
+	"91": {"Glenn", "glenn@example.com"},
+	"92": {"Spammer", "spam@example.com"},
+	"93": {"Priya Natarajan", "priya@example.com"},
+	"94": {"Dana Refused", "dana@example.com"},
+}
 
 type recordedScreenerRequest struct {
 	Method string
@@ -87,10 +100,24 @@ func screenerServer(t *testing.T) (*httptest.Server, *recordedScreener) {
 				{"id":92,"status":"denied","petitioner":{"id":52,"name":"Scott Ellrod"}}]}`))
 		case req.Method == http.MethodPost && req.URL.Path == "/clearances/punt.json":
 			w.WriteHeader(http.StatusAccepted)
+		case req.Method == http.MethodPatch && strings.HasPrefix(req.URL.Path, "/my/clearances/"):
+			id := strings.TrimSuffix(strings.TrimPrefix(req.URL.Path, "/my/clearances/"), ".json")
+			sender := screenedPetitioners[id]
+			var requestBody struct {
+				Status string `json:"status"`
+			}
+			_ = json.Unmarshal(body.Bytes(), &requestBody)
+			clearanceID, _ := strconv.ParseInt(id, 10, 64)
+			payload, _ := json.Marshal(map[string]any{
+				"id": clearanceID, "status": requestBody.Status,
+				"petitioner": map[string]any{"name": sender.name, "email_address": sender.email},
+			})
+			_, _ = w.Write(payload)
 		case req.Method == http.MethodGet && req.URL.Path == "/my/clearances.json":
 			if req.URL.Query().Get("page") == "history-cursor-2" {
 				_, _ = w.Write([]byte(`{"clearances":[
-					{"id":93,"status":"approved","updated_at":"2026-08-17T10:00:00Z","petitioner":{"id":53,"name":"Priya Natarajan","email_address":"priya@example.com"}}]}`))
+					{"id":93,"status":"approved","updated_at":"2026-08-17T10:00:00Z","petitioner":{"id":53,"name":"Priya Natarajan","email_address":"priya@example.com"}},
+					{"id":94,"status":"denied","updated_at":"2026-08-16T10:00:00Z","petitioner":{"id":54,"name":"Dana Refused","email_address":"dana@example.com"}}]}`))
 				return
 			}
 			w.Header().Set("Link", `<https://app.hey.com/my/clearances.json?page=history-cursor-2>; rel="next"`)
@@ -301,7 +328,7 @@ func TestScreenerHistoryPaginates(t *testing.T) {
 	}
 
 	screened := decodeScreenerData[[]screenedClearance](t, resp.Data)
-	if len(screened) != 3 || screened[2].ID != 93 {
+	if len(screened) != 4 || screened[2].ID != 93 || screened[3].ID != 94 {
 		t.Errorf("screened = %+v", screened)
 	}
 }
