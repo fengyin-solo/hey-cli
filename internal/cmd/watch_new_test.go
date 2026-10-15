@@ -322,7 +322,7 @@ func TestWatchReadsMailThatLandedWhileItReadTheClock(t *testing.T) {
 	// As run does: the clock, then the boxes, then the catch-up.
 	started := serverNow(context.Background())
 	command := newWatchCommand()
-	boxes, err := command.watchedBoxes(context.Background(), started)
+	boxes, err := command.watchedBoxes(context.Background(), started, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

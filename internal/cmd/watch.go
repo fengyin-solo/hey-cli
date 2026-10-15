@@ -57,14 +57,15 @@ var (
 )
 
 type watchCommand struct {
-	cmd         *cobra.Command
-	boxes       []string
-	events      []string
-	since       string
-	asyncScript string
-	syncScript  string
-	exitOnFirst bool
-	timeout     time.Duration
+	cmd          *cobra.Command
+	boxes        []string
+	events       []string
+	since        string
+	noCheckpoint bool
+	asyncScript  string
+	syncScript   string
+	exitOnFirst  bool
+	timeout      time.Duration
 }
 
 func newWatchCommand() *watchCommand {
@@ -100,7 +101,17 @@ than the feed can list one change at a time and the watch skipped ahead — re-r
 box. A resync is an event of its own: reported by default, scripts run for it and
 --exit-on-first counts it, and --events can leave it out, as --events new does. A
 calendar's feed falls behind the same way, and calendar_resync is the same word for it.
-Ready and disconnected are written to stdout only.`,
+Ready and disconnected are written to stdout only.
+
+A watch resumes where the last one left off. Its position — every box's and calendar's
+feed cursor, when each thread was last active, and the changes already handed on — is
+checkpointed in the state directory, one file per server and account, rewritten
+atomically after every catch-up batch and every ready. A restart, a reconnect or a
+resync reads forward from the checkpoint, so a change is printed or run through a script
+once: a repeat is told apart by its kind, the thread or recording it names and the
+activity time. A torn checkpoint or one from another account is ignored, and the watch
+starts fresh. An explicit --since starts there instead of at the checkpoint;
+--no-checkpoint turns both the restore and the writes off.`,
 		Annotations: map[string]string{
 			"agent_notes": "Long-running. Writes one JSON object per changed thread to stdout (NDJSON), not the usual envelope. Use --exit-on-first to block until one change lands and then exit.",
 		},
@@ -117,7 +128,8 @@ Ready and disconnected are written to stdout only.`,
 	flags := watchCommand.cmd.Flags()
 	flags.StringArrayVar(&watchCommand.boxes, "box", nil, "Box whose changes to report, by name or ID (repeatable, defaults to all; every box is followed either way, so new mail is judged across all of them)")
 	flags.StringSliceVar(&watchCommand.events, "events", defaultChanges, "Changes to report: added, updated, deleted, resync and new for mail; recording_added, recording_updated, recording_deleted, calendar_added, calendar_updated, calendar_deleted and calendar_resync for the calendars")
-	flags.StringVar(&watchCommand.since, "since", "", "Report changes since this time first (RFC 3339 or YYYY-MM-DD)")
+	flags.StringVar(&watchCommand.since, "since", "", "Report changes since this time first (RFC 3339 or YYYY-MM-DD); wins over the saved checkpoint")
+	flags.BoolVar(&watchCommand.noCheckpoint, "no-checkpoint", false, "Don't read or write the checkpoint that resumes a watch where it left off")
 	flags.StringVar(&watchCommand.asyncScript, "run-async", "", "Shell command to spawn per change, without waiting for it")
 	flags.StringVar(&watchCommand.syncScript, "run-sync", "", "Shell command to run per change, one at a time, waiting for each")
 	flags.BoolVar(&watchCommand.exitOnFirst, "exit-on-first", false, "Exit after the first change")
@@ -151,10 +163,19 @@ func (c *watchCommand) run(cmd *cobra.Command, args []string) error {
 	// New mail is measured against the watch's start, so that is taken before
 	// the boxes' cursors are read — and the cursors start no later than it, so
 	// nothing that lands between the two sits behind a cursor, read by nothing.
+	// A checkpoint from a previous watch moves the start line back to where
+	// that watch stopped: its cursors, its thread record, its seen changes.
+	checkpoint, err := openWatchCheckpoint(cfg.BaseURL, cfg.AccountID, c.since, c.noCheckpoint)
+	if err != nil {
+		return err
+	}
 	started := serverNow(ctx)
 	newMail := trackNewMail(started)
+	if activeAt, floors := checkpoint.threadActivity(); len(activeAt) > 0 || len(floors) > 0 {
+		newMail.restore(activeAt, floors)
+	}
 
-	boxes, err := c.watchedBoxes(ctx, started)
+	boxes, err := c.watchedBoxes(ctx, started, checkpoint.boxCursors())
 	if err != nil {
 		return err
 	}
@@ -166,6 +187,8 @@ func (c *watchCommand) run(cmd *cobra.Command, args []string) error {
 		syncScript:  c.syncScript,
 		exitOnFirst: c.exitOnFirst,
 		newMail:     newMail,
+		checkpoint:  checkpoint,
+		memory:      newWatchEventMemory(checkpoint.seenEvents()),
 		out:         cmd.OutOrStdout(),
 		errOut:      cmd.ErrOrStderr(),
 		styled:      writer.IsStyled(),
@@ -175,7 +198,7 @@ func (c *watchCommand) run(cmd *cobra.Command, args []string) error {
 	}
 
 	if c.watchingCalendars(changes) {
-		calendars, calendarsErr := c.watchedCalendars(ctx, started)
+		calendars, calendarsErr := c.watchedCalendars(ctx, started, checkpoint.calendarCursors(), checkpoint.calendarListCursor())
 		if calendarsErr != nil {
 			return calendarsErr
 		}
@@ -251,7 +274,7 @@ func (c *watchCommand) watchedChanges() (map[string]bool, error) {
 	return changes, nil
 }
 
-func (c *watchCommand) watchedBoxes(ctx context.Context, started time.Time) (map[int64]*watchedBox, error) {
+func (c *watchCommand) watchedBoxes(ctx context.Context, started time.Time, restored map[int64]hey.PostingChangesCursor) (map[int64]*watchedBox, error) {
 	listed, err := sdk.Boxes().List(ctx)
 	if err != nil {
 		return nil, apierr.FromSDK(err)
@@ -264,18 +287,23 @@ func (c *watchCommand) watchedBoxes(ctx context.Context, started time.Time) (map
 	// box is what decides whether its next change in another is new mail — a
 	// reply in The Feed, then a move into the Imbox, is not — so the record
 	// has to see them all. --box picks the boxes whose changes are reported.
+	// A box the checkpoint has a cursor for resumes there; a new box starts
+	// from the server's own cursor, capped at this watch's start.
 	watched := map[int64]*watchedBox{}
 	reported := 0
 	for _, box := range *listed {
-		cursor, err := watchCursor(box.PostingChangesUrl, c.since)
-		if err != nil {
-			return nil, err
-		}
-		if cursor.Since == "" {
-			continue
-		}
-		if c.since == "" {
-			cursor = noLaterThan(cursor, started)
+		cursor, resumed := restored[box.Id]
+		if !resumed {
+			cursor, err = watchCursor(box.PostingChangesUrl, c.since)
+			if err != nil {
+				return nil, err
+			}
+			if cursor.Since == "" {
+				continue
+			}
+			if c.since == "" {
+				cursor = noLaterThan(cursor, started)
+			}
 		}
 
 		watched[box.Id] = &watchedBox{id: box.Id, kind: box.Kind, name: box.Name, cursor: cursor, reported: c.watching(box)}
@@ -420,6 +448,8 @@ type postingsWatch struct {
 	syncScript     string
 	exitOnFirst    bool
 	newMail        *newMail
+	checkpoint     *watchCheckpoint
+	memory         *watchEventMemory
 	out            io.Writer
 	errOut         io.Writer
 	styled         bool
@@ -596,6 +626,9 @@ func (w *postingsWatch) readyOnceCaughtUp(ctx context.Context) {
 	}
 	w.catchingUp = false
 	w.announce(watchReady)
+	// The ready moment is part of the position: a restarted watch's first
+	// catch-up can see the checkpoint already carried a live watch this far.
+	w.saveCheckpoint(watchTime(time.Now()))
 }
 
 // nextTransition takes the oldest queued transition, if there is one.
@@ -679,6 +712,9 @@ func (w *postingsWatch) readBox(ctx context.Context, box *watchedBox) error {
 		// A resync says the box is worth re-reading; a box that is gone is not.
 		if skipped {
 			w.report(ctx, watchEvent{Change: watchResync, At: watchTime(time.Now())}, box, nil)
+			// The skip moved the cursor and the new-mail floor: the next watch
+			// resumes after the gap, not back where the 409 began.
+			w.saveCheckpoint("")
 		}
 		return nil
 	}
@@ -701,6 +737,10 @@ func (w *postingsWatch) readBox(ctx context.Context, box *watchedBox) error {
 	for _, posting := range changes.Deleted {
 		w.report(ctx, watchEvent{Change: "deleted", At: watchTime(posting.DeletedAt), PostingID: posting.Id}, box, nil)
 	}
+
+	// The batch is confirmed: move the checkpoint up with it, so a restart
+	// between notifications neither replays it nor meets it unrecorded.
+	w.saveCheckpoint("")
 
 	return nil
 }
@@ -804,6 +844,7 @@ func (w *postingsWatch) stopWatching(box *watchedBox) error {
 	fmt.Fprintf(w.errOut, "notice: %s can no longer be followed — it is gone from this account\n", box.name)
 	delete(w.boxes, box.id)
 	delete(w.unread, box.id)
+	w.saveCheckpoint("")
 
 	for _, remaining := range w.boxes {
 		if remaining.reported {
@@ -812,6 +853,14 @@ func (w *postingsWatch) stopWatching(box *watchedBox) error {
 	}
 
 	return apierr.ErrNotFound("box", box.name)
+}
+
+// saveCheckpoint records the watch's position when checkpointing is on; a watch
+// without one (--no-checkpoint, or tests that build the watch directly) is a no-op.
+func (w *postingsWatch) saveCheckpoint(readyAt string) {
+	if w.checkpoint != nil {
+		w.checkpoint.save(w, readyAt)
+	}
 }
 
 // report hands one change on — printed, or run through the script — and says
@@ -829,6 +878,14 @@ func (w *postingsWatch) report(ctx context.Context, event watchEvent, box *watch
 		if posting != nil {
 			event.Posting = posting
 			event.ThreadID = resolvePostingTopicID(*posting)
+		}
+	}
+	// The same event re-read on a reconnect or a restart is handed on once: a
+	// repeat carries the same kind, posting or recording id and active time.
+	// New activity on a known posting is another event.
+	if w.memory != nil {
+		if key, ok := watchEventKey(event); ok && !w.memory.remember(key) {
+			return false
 		}
 	}
 	w.reported++

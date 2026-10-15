@@ -370,6 +370,20 @@ calendar line `HEY_CALENDAR_ID`, `HEY_CALENDAR_NAME`, `HEY_RECORDING_ID` and
 `HEY_RECORDING_TYPE` instead of the box and posting fields. Both also take over
 stdout, so the JSON isn't printed as well.
 
+A watch resumes where the previous one stopped. Every box's and calendar's feed cursor,
+each thread's last activity, and the changes already handed on are checkpointed in the
+state directory (`$XDG_STATE_HOME/hey-cli/watch`), one file per server and account,
+rewritten atomically after every caught-up batch and every `ready`. A restart, a
+reconnect or a resync reads forward from the checkpoint, so a change is printed and run
+through a script once at most — repeats are told apart by change kind, posting or
+recording ID and active time. A torn checkpoint or one belonging to another account is
+ignored and the watch starts fresh. An explicit `--since` starts there instead of at the
+checkpoint; `--no-checkpoint` turns both the restore and the writes off:
+
+```bash
+hey watch --no-checkpoint            # run without reading or writing a checkpoint
+```
+
 ## Calendars
 
 ```bash

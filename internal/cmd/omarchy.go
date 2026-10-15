@@ -325,8 +325,8 @@ func stripMenuBlock(content string) string {
 // inline `hey-unread` command module instead, which setup still removes — two
 // pollers in one slot — carrying its notify choice over to the plugin when
 // the plugin has none. The toasts are the plugin's own, composed from the
-// new-mail lines of `hey watch`: no state file, so turning them on is nothing
-// more than setting the key.
+// new-mail lines of `hey watch`, so turning them on is nothing more than
+// setting the key.
 
 func notifyDetail(notify bool) string {
 	if notify {

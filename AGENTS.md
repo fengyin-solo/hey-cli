@@ -686,6 +686,23 @@ left out by `--events new` — so a script for new mail never runs on one. The O
 click-to-focus and the replace-not-stack id all live in the plugin), and nothing
 desktop-shaped lives in `watch*.go`.
 
+A watch checkpoints its position so a restart resumes instead of replaying
+(`internal/cmd/watch_checkpoint.go`). One file per server and linked account lives under
+the state directory (`$XDG_STATE_HOME/hey-cli/watch/checkpoint-<scope>.json`, the scope a
+hash of the origin and account): every box's posting cursor, every calendar's recording
+cursor and the calendar-list cursor, each thread's last `active_at`, the skip-ahead
+floors, and the keys of the changes already handed on. It is rewritten atomically
+(temp file, `0600`, rename) after every confirmed batch — a read that advanced a cursor
+and classified its postings — and at every `ready` with `ready_at`. Load validates the
+version and the scope and ignores a torn or foreign file rather than failing the watch.
+A restored cursor wins over the server-baked one and skips the `noLaterThan` cap (it is
+ours, already at or behind live); an explicit `--since` restores nothing, and
+`--no-checkpoint` neither restores nor writes. Dedup is on the hand-off path in `report`:
+the key is the change kind plus the posting or recording id and its `active_at`, held in
+a bounded FIFO (`watchEventMemory`) that the checkpoint repopulates, so an event re-read
+across a restart, reconnect or resync overlap is printed and run through a script once,
+and new activity on a known posting is another event.
+
 The TUI's mail list follows the same channel and wants less from it. `internal/cmd/tui_watch.go`
 subscribes and relays typed `tui.MailWatchEvent` values; `internal/tui/live.go` defines
 that `tui.MailWatcher` contract, so the TUI never sees cable or auth, and a test hands it

@@ -81,8 +81,9 @@ func (c *watchCommand) watchingCalendars(changes map[string]bool) bool {
 // watchedCalendars reads the calendars and where each one's feed should be read from. The
 // cursors are capped at the watch's start the way the boxes' are — the server bakes each
 // calendar's last activity into its URL, so a write that lands between reading the clock
-// and reading the list would otherwise sit behind the cursor, read by nothing.
-func (c *watchCommand) watchedCalendars(ctx context.Context, started time.Time) (*calendarsWatch, error) {
+// and reading the list would otherwise sit behind the cursor, read by nothing. A
+// checkpoint that names the feeds resumes each one where the last watch stopped instead.
+func (c *watchCommand) watchedCalendars(ctx context.Context, started time.Time, restored map[int64]hey.CalendarChangesCursor, restoredList *hey.CalendarChangesCursor) (*calendarsWatch, error) {
 	list, err := sdk.Calendars().ListWithChanges(ctx)
 	if err != nil {
 		return nil, apierr.FromSDK(err)
@@ -91,9 +92,14 @@ func (c *watchCommand) watchedCalendars(ctx context.Context, started time.Time) 
 		return nil, apierr.ErrAPI(0, "could not list calendars")
 	}
 
-	listCursor, err := c.calendarCursor(list.CalendarChangesURL, started)
-	if err != nil {
-		return nil, err
+	listCursor := hey.CalendarChangesCursor{}
+	if restoredList != nil {
+		listCursor = *restoredList
+	} else {
+		listCursor, err = c.calendarCursor(list.CalendarChangesURL, started)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	watch := &calendarsWatch{
@@ -105,7 +111,7 @@ func (c *watchCommand) watchedCalendars(ctx context.Context, started time.Time) 
 		poll:       time.NewTicker(watchCalendarPollInterval),
 	}
 	for _, listed := range list.Calendars {
-		calendar, err := c.followedCalendar(listed, started)
+		calendar, err := c.followedCalendar(listed, started, restored)
 		if err != nil {
 			return nil, err
 		}
@@ -115,10 +121,14 @@ func (c *watchCommand) watchedCalendars(ctx context.Context, started time.Time) 
 	return watch, nil
 }
 
-func (c *watchCommand) followedCalendar(listed hey.ListedCalendar, started time.Time) (*watchedCalendar, error) {
-	cursor, err := c.calendarCursor(listed.RecordingChangesURL, started)
-	if err != nil {
-		return nil, err
+func (c *watchCommand) followedCalendar(listed hey.ListedCalendar, started time.Time, restored map[int64]hey.CalendarChangesCursor) (*watchedCalendar, error) {
+	cursor, resumed := restored[listed.Calendar.Id]
+	if !resumed {
+		var err error
+		cursor, err = c.calendarCursor(listed.RecordingChangesURL, started)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &watchedCalendar{
@@ -342,6 +352,7 @@ func (w *postingsWatch) readCalendar(ctx context.Context, calendar *watchedCalen
 		}
 		if skipped {
 			w.reportCalendar(ctx, watchEvent{Change: watchCalendarResync, At: watchTime(time.Now())}, calendar.id, calendar.name)
+			w.saveCheckpoint("")
 		}
 		return nil
 	}
@@ -360,6 +371,8 @@ func (w *postingsWatch) readCalendar(ctx context.Context, calendar *watchedCalen
 			RecordingType: deleted.Type,
 		}, calendar.id, calendar.name)
 	}
+
+	w.saveCheckpoint("")
 
 	return nil
 }
@@ -456,6 +469,8 @@ func (w *postingsWatch) pollCalendarList(ctx context.Context) error {
 		w.calendar.listCursor = *changes.NextCursor
 	}
 
+	w.saveCheckpoint("")
+
 	return nil
 }
 
@@ -491,6 +506,8 @@ func (w *postingsWatch) stopWatchingCalendar(calendarID int64) {
 	w.calendar.pendingMu.Lock()
 	delete(w.calendar.pending, calendarID)
 	w.calendar.pendingMu.Unlock()
+
+	w.saveCheckpoint("")
 }
 
 // reportCalendar stamps the calendar onto the event and hands it on the way a box change

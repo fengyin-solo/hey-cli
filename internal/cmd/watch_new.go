@@ -16,9 +16,9 @@ import (
 // here, once, rather than by every script and widget that reads the stream —
 // what to do about it (a toast, a bell, a re-read) is the reader's.
 //
-// There is no state file: new means active since the watch began, so the
-// backlog a box's first read carries is not new, and what the watch remembers —
-// when each thread was last active — lives and dies with it.
+// The record lives and dies with the watch, but a checkpointed watch carries
+// it across restarts (see watch_checkpoint.go): absent one, new means active
+// since the watch began, so the backlog a box's first read carries is not new.
 
 // newMail keeps up with every thread the watch reads, in every box and whatever
 // --events reports, so a thread moved into a box, or known from a change that
@@ -34,6 +34,18 @@ type newMail struct {
 // active_at is on.
 func trackNewMail(started time.Time) *newMail {
 	return &newMail{started: started, floors: map[int64]time.Time{}, activeAt: map[int64]time.Time{}}
+}
+
+// restore adopts the activity a previous watch already knew, so a thread it
+// followed is measured against its last activity rather than this watch's
+// start, and a skip-ahead's floor still holds.
+func (n *newMail) restore(activeAt, floors map[int64]time.Time) {
+	for id, at := range activeAt {
+		n.activeAt[id] = at
+	}
+	for id, at := range floors {
+		n.floors[id] = at
+	}
 }
 
 // skippedTo sets a box's floor at the cursor the watch skipped ahead to. A box

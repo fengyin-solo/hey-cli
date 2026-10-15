@@ -864,7 +864,7 @@ func TestWatchedBoxesStartNoLaterThanTheWatchDid(t *testing.T) {
 	initSDK(auth.NewManager(server.URL, server.Client(), t.TempDir()), server.URL)
 
 	command := newWatchCommand()
-	boxes, err := command.watchedBoxes(context.Background(), watchStarted)
+	boxes, err := command.watchedBoxes(context.Background(), watchStarted, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -881,7 +881,7 @@ func TestWatchedBoxesStartNoLaterThanTheWatchDid(t *testing.T) {
 	// --box imbox: every box is still followed, the Imbox alone is reported;
 	// a --box that names nothing is not found.
 	command.boxes = []string{"imbox"}
-	boxes, err = command.watchedBoxes(context.Background(), watchStarted)
+	boxes, err = command.watchedBoxes(context.Background(), watchStarted, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -889,14 +889,14 @@ func TestWatchedBoxesStartNoLaterThanTheWatchDid(t *testing.T) {
 		t.Errorf("boxes = %+v, want both followed and the Imbox alone reported", boxes)
 	}
 	command.boxes = []string{"trailbox"}
-	if _, err := command.watchedBoxes(context.Background(), watchStarted); err == nil {
+	if _, err := command.watchedBoxes(context.Background(), watchStarted, nil); err == nil {
 		t.Error("expected an error when --box names no box")
 	}
 	command.boxes = nil
 
 	// --since is the reader's choice and wins over both.
 	command.since = "2026-08-21T09:30:00Z"
-	boxes, err = command.watchedBoxes(context.Background(), watchStarted)
+	boxes, err = command.watchedBoxes(context.Background(), watchStarted, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
